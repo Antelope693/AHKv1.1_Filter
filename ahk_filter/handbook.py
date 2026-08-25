@@ -48,7 +48,7 @@ class HandbookWindow(ctk.CTkToplevel):
         ctk.CTkLabel(
             top,
             text=f"公告 / 使用手册 / 更新记录    v{__version__}",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=15, weight="bold"),
             anchor="w",
         ).grid(row=0, column=0, sticky="w", padx=8, pady=8)
 
@@ -65,7 +65,9 @@ class HandbookWindow(ctk.CTkToplevel):
             row=0, column=4, padx=4
         )
 
-        self.text = ctk.CTkTextbox(self, wrap="word", font=ctk.CTkFont(size=13))
+        self.text = ctk.CTkTextbox(
+            self, wrap="word", font=ctk.CTkFont(family="Microsoft YaHei UI", size=13)
+        )
         self.text.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
 
         self.after(50, self._reload)

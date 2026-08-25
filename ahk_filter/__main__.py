@@ -6,6 +6,10 @@ import sys
 import traceback
 from pathlib import Path
 
+from .ui_theme import configure_dpi
+
+configure_dpi()
+
 from tkinter import messagebox
 
 from .ahk_find import find_autohotkey

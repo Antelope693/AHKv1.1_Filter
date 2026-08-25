@@ -15,6 +15,7 @@ from .handbook import HandbookWindow
 from .hotkeys import format_hotkey, normalize_hotkey
 from .runtime import AhkRuntime
 from .scanner import AhkScript, ScanResult
+from .ui_theme import emoji_font, title_font, ui_font
 
 
 ctk.set_appearance_mode("System")
@@ -60,12 +61,14 @@ class ScriptRow(ctk.CTkFrame):
 
         title = script.name if script.group is None else f"{script.script_id}"
         self.title_lbl = ctk.CTkLabel(
-            info, text=title, anchor="w", font=ctk.CTkFont(size=13, weight="bold")
+            info, text=title, anchor="w", font=ui_font(13, "bold")
         )
         self.title_lbl.grid(row=0, column=0, sticky="ew")
 
         meta = f"{script.size} bytes"
-        self.meta_lbl = ctk.CTkLabel(info, text=meta, anchor="w", text_color=("gray40", "gray65"))
+        self.meta_lbl = ctk.CTkLabel(
+            info, text=meta, anchor="w", text_color=("gray40", "gray65"), font=ui_font(11)
+        )
         self.meta_lbl.grid(row=1, column=0, sticky="ew")
 
         self.status_lbl = ctk.CTkLabel(self, text=status, width=72, anchor="center")
@@ -143,7 +146,7 @@ class GroupSection(ctk.CTkFrame):
             header,
             text=group_name,
             anchor="w",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            font=ui_font(15, "bold"),
         ).grid(row=0, column=0, sticky="w")
 
         ctk.CTkLabel(
@@ -151,6 +154,7 @@ class GroupSection(ctk.CTkFrame):
             text=f"{len(scripts)} 个脚本",
             anchor="w",
             text_color=("gray40", "gray65"),
+            font=ui_font(12),
         ).grid(row=1, column=0, sticky="w")
 
         all_selected = all(
@@ -268,14 +272,14 @@ class App(ctk.CTk):
         ctk.CTkLabel(
             title_row,
             text="AHK_Filter",
-            font=ctk.CTkFont(size=24, weight="bold"),
+            font=title_font(24),
             anchor="w",
         ).pack(side="left")
 
         ctk.CTkLabel(
             title_row,
             text="  By SYL",
-            font=ctk.CTkFont(size=12),
+            font=ui_font(12),
             text_color=("gray45", "gray65"),
             anchor="sw",
         ).pack(side="left", pady=(10, 0))
@@ -285,7 +289,7 @@ class App(ctk.CTk):
             text=str(self.scan.scripts_dir),
             anchor="w",
             text_color=("gray40", "gray65"),
-            font=ctk.CTkFont(size=12),
+            font=ui_font(12),
         )
         self.subtitle.grid(row=1, column=0, sticky="w", padx=6, pady=(2, 6))
 
@@ -297,7 +301,7 @@ class App(ctk.CTk):
             corner_radius=8,
             fg_color=COLOR_STOPPED,
             text_color="white",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            font=ui_font(13, "bold"),
         )
         self.state_badge.grid(row=0, column=1, rowspan=2, padx=8)
 
@@ -316,7 +320,7 @@ class App(ctk.CTk):
             width=128,
             height=38,
             corner_radius=10,
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ui_font(14, "bold"),
             fg_color=COLOR_STOPPED,
             hover_color=("#ef4444", "#991b1b"),
             command=self._ui_toggle,
@@ -329,7 +333,7 @@ class App(ctk.CTk):
             width=210,
             height=38,
             corner_radius=10,
-            font=ctk.CTkFont(size=13),
+            font=ui_font(13),
             command=lambda: self._start_record("global_toggle"),
         )
         self.global_hk_btn.pack(side="left", padx=(0, 8))
@@ -340,34 +344,50 @@ class App(ctk.CTk):
             width=78,
             height=38,
             corner_radius=10,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            font=ui_font(13, "bold"),
             fg_color=("#64748b", "#475569"),
             hover_color=("#475569", "#334155"),
             command=self._toggle_test_panel,
         )
         self.btn_test.pack(side="left", padx=(0, 8))
 
-        # Prominent handbook button
+        # Handbook: large emoji + label (emoji in CTkButton alone renders tiny)
         self.btn_book = ctk.CTkButton(
             left,
-            text="📖  手册",
-            width=96,
+            text="",
+            width=110,
             height=38,
             corner_radius=10,
-            font=ctk.CTkFont(size=13, weight="bold"),
             fg_color=("#0ea5e9", "#0284c7"),
             hover_color=("#0284c7", "#0369a1"),
-            text_color="white",
             command=self._open_handbook,
         )
         self.btn_book.pack(side="left")
+        book_inner = ctk.CTkFrame(self.btn_book, fg_color="transparent")
+        book_inner.place(relx=0.5, rely=0.5, anchor="center")
+        ctk.CTkLabel(
+            book_inner,
+            text="📖",
+            font=emoji_font(20),
+            text_color="white",
+            fg_color="transparent",
+        ).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(
+            book_inner,
+            text="手册",
+            font=ui_font(14, "bold"),
+            text_color="white",
+            fg_color="transparent",
+        ).pack(side="left")
+        for child in (book_inner, *book_inner.winfo_children()):
+            child.bind("<Button-1>", lambda _e: self._open_handbook())
 
     def _build_test_panel(self) -> None:
         self.test_panel = ctk.CTkFrame(self, corner_radius=8)
         # Not gridded until opened — sits between toolbar (row1) and list (row3)
         self.test_panel.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(self.test_panel, text="TEST", width=56, font=ctk.CTkFont(weight="bold")).grid(
+        ctk.CTkLabel(self.test_panel, text="TEST", width=56, font=ui_font(13, "bold")).grid(
             row=0, column=0, padx=(12, 6), pady=10
         )
         self.test_entry = ctk.CTkEntry(
@@ -409,7 +429,8 @@ class App(ctk.CTk):
             list_hdr,
             text="脚本列表",
             anchor="w",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ui_font(15),
+            text_color=("gray15", "gray90"),
         )
         self.list_title.grid(row=0, column=0, sticky="w", padx=4)
 
@@ -418,7 +439,7 @@ class App(ctk.CTk):
             text="↻",
             width=36,
             height=28,
-            font=ctk.CTkFont(size=16),
+            font=ui_font(18),
             fg_color="transparent",
             text_color=("gray30", "gray80"),
             hover_color=("gray85", "gray25"),
@@ -434,7 +455,7 @@ class App(ctk.CTk):
         foot = ctk.CTkFrame(self)
         foot.grid(row=4, column=0, sticky="ew", padx=14, pady=(4, 12))
         foot.grid_columnconfigure(0, weight=1)
-        self.footer = ctk.CTkLabel(foot, text="", anchor="w")
+        self.footer = ctk.CTkLabel(foot, text="", anchor="w", font=ui_font(12))
         self.footer.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
 
     def _toggle_test_panel(self) -> None:
@@ -526,7 +547,7 @@ class App(ctk.CTk):
                 loose_hdr,
                 text=f"散装脚本（{len(scan.loose)}）",
                 anchor="w",
-                font=ctk.CTkFont(size=14, weight="bold"),
+                font=ui_font(14, "bold"),
             ).grid(row=0, column=0, sticky="w", padx=12, pady=8)
             row_idx += 1
 
