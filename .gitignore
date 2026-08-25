@@ -27,10 +27,10 @@ ahk_filter_config.json
 ahk_filter_config.tmp
 .cache/
 
-# User scripts under scripts/ — only Pure examples are tracked
+# User scripts under scripts/ — only Pure_* examples are tracked
 scripts/**/*.ahk
 !scripts/Pure/
-!scripts/Pure/*.ahk
+!scripts/Pure/Pure_*.ahk
 
 # Legacy root-level personal scripts only
 /*.ahk
