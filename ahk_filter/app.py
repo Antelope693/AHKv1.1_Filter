@@ -258,86 +258,109 @@ class App(ctk.CTk):
         self.after(400, self._poll_status)
 
     def _build_header(self) -> None:
-        header = ctk.CTkFrame(self)
-        header.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 4))
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 2))
         header.grid_columnconfigure(0, weight=1)
 
+        title_row = ctk.CTkFrame(header, fg_color="transparent")
+        title_row.grid(row=0, column=0, sticky="w", padx=6, pady=(4, 0))
+
         ctk.CTkLabel(
-            header,
+            title_row,
             text="AHK_Filter",
-            font=ctk.CTkFont(size=22, weight="bold"),
+            font=ctk.CTkFont(size=24, weight="bold"),
             anchor="w",
-        ).grid(row=0, column=0, sticky="w", padx=10, pady=(8, 0))
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            title_row,
+            text="  By SYL",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray45", "gray65"),
+            anchor="sw",
+        ).pack(side="left", pady=(10, 0))
 
         self.subtitle = ctk.CTkLabel(
             header,
             text=str(self.scan.scripts_dir),
             anchor="w",
-            text_color=("gray35", "gray70"),
+            text_color=("gray40", "gray65"),
+            font=ctk.CTkFont(size=12),
         )
-        self.subtitle.grid(row=1, column=0, sticky="w", padx=10, pady=(0, 8))
+        self.subtitle.grid(row=1, column=0, sticky="w", padx=6, pady=(2, 6))
 
         self.state_badge = ctk.CTkLabel(
             header,
-            text="未启动",
-            width=88,
-            height=28,
-            corner_radius=6,
+            text="未启动  ▶",
+            width=108,
+            height=30,
+            corner_radius=8,
             fg_color=COLOR_STOPPED,
             text_color="white",
+            font=ctk.CTkFont(size=13, weight="bold"),
         )
-        self.state_badge.grid(row=0, column=1, rowspan=2, padx=10)
+        self.state_badge.grid(row=0, column=1, rowspan=2, padx=8)
 
     def _build_toolbar(self) -> None:
-        bar = ctk.CTkFrame(self, corner_radius=10)
-        bar.grid(row=1, column=0, sticky="ew", padx=14, pady=6)
-        bar.grid_columnconfigure(5, weight=1)
+        bar = ctk.CTkFrame(self, corner_radius=12)
+        bar.grid(row=1, column=0, sticky="ew", padx=14, pady=(4, 6))
+        bar.grid_columnconfigure(4, weight=1)
 
-        # Merged start/stop: red = stopped, blue = running
+        left = ctk.CTkFrame(bar, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="w", padx=10, pady=10)
+
+        # Merged start/stop: red = stopped (+ play), blue = running (+ pause)
         self.btn_toggle = ctk.CTkButton(
-            bar,
-            text="未启动",
-            width=118,
-            height=36,
+            left,
+            text="未启动  ▶",
+            width=128,
+            height=38,
+            corner_radius=10,
             font=ctk.CTkFont(size=14, weight="bold"),
             fg_color=COLOR_STOPPED,
             hover_color=("#ef4444", "#991b1b"),
             command=self._ui_toggle,
         )
-        self.btn_toggle.grid(row=0, column=0, padx=(12, 8), pady=10)
+        self.btn_toggle.pack(side="left", padx=(0, 8))
 
         self.global_hk_btn = ctk.CTkButton(
-            bar,
+            left,
             text=f"启停热键  {format_hotkey(self.config.data.get('global_toggle_hotkey'))}",
-            width=200,
-            height=36,
+            width=210,
+            height=38,
+            corner_radius=10,
+            font=ctk.CTkFont(size=13),
             command=lambda: self._start_record("global_toggle"),
         )
-        self.global_hk_btn.grid(row=0, column=1, padx=6, pady=10)
+        self.global_hk_btn.pack(side="left", padx=(0, 8))
 
         self.btn_test = ctk.CTkButton(
-            bar,
+            left,
             text="TEST",
-            width=72,
-            height=36,
+            width=78,
+            height=38,
+            corner_radius=10,
             font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color=("gray70", "gray40"),
-            hover_color=("gray60", "gray45"),
+            fg_color=("#64748b", "#475569"),
+            hover_color=("#475569", "#334155"),
             command=self._toggle_test_panel,
         )
-        self.btn_test.grid(row=0, column=2, padx=6, pady=10)
+        self.btn_test.pack(side="left", padx=(0, 8))
 
+        # Prominent handbook button
         self.btn_book = ctk.CTkButton(
-            bar,
-            text="📖",
-            width=44,
-            height=36,
-            font=ctk.CTkFont(size=16),
-            fg_color=("gray80", "gray32"),
-            hover_color=("gray70", "gray38"),
+            left,
+            text="📖  手册",
+            width=96,
+            height=38,
+            corner_radius=10,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=("#0ea5e9", "#0284c7"),
+            hover_color=("#0284c7", "#0369a1"),
+            text_color="white",
             command=self._open_handbook,
         )
-        self.btn_book.grid(row=0, column=3, padx=(6, 12), pady=10)
+        self.btn_book.pack(side="left")
 
     def _build_test_panel(self) -> None:
         self.test_panel = ctk.CTkFrame(self, corner_radius=8)
@@ -422,7 +445,10 @@ class App(ctk.CTk):
             self.after(30, lambda: self.test_entry.focus_set())
         else:
             self.test_panel.grid_remove()
-            self.btn_test.configure(fg_color=("gray70", "gray40"), hover_color=("gray60", "gray45"))
+            self.btn_test.configure(
+                fg_color=("#64748b", "#475569"),
+                hover_color=("#475569", "#334155"),
+            )
 
     def _open_handbook(self) -> None:
         if self._handbook is not None and self._handbook.winfo_exists():
@@ -677,17 +703,17 @@ class App(ctk.CTk):
     def _sync_status_bar(self) -> None:
         running = self.runtime.state.running
         if running:
-            self.state_badge.configure(text="运行中", fg_color=COLOR_RUNNING)
+            self.state_badge.configure(text="运行中  ■", fg_color=COLOR_RUNNING)
             self.btn_toggle.configure(
-                text="运行中",
+                text="运行中  ■",
                 fg_color=COLOR_RUNNING,
                 hover_color=("#3b82f6", "#1e40af"),
             )
             self.btn_refresh.configure(state="disabled")
         else:
-            self.state_badge.configure(text="未启动", fg_color=COLOR_STOPPED)
+            self.state_badge.configure(text="未启动  ▶", fg_color=COLOR_STOPPED)
             self.btn_toggle.configure(
-                text="未启动",
+                text="未启动  ▶",
                 fg_color=COLOR_STOPPED,
                 hover_color=("#ef4444", "#991b1b"),
             )
