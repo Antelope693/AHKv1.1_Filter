@@ -12,6 +12,7 @@ from .ahk_find import find_autohotkey
 from .app import App
 from .config import ConfigStore
 from .elevation import ensure_admin, is_admin
+from .envcheck import check_environment, guide_fix_environment
 from .hotkey_bus import HotkeyBus
 from .injector import ensure_all
 from .runtime import AhkRuntime
@@ -44,6 +45,22 @@ def bootstrap_scan(workdir: Path, config: ConfigStore, runtime: AhkRuntime) -> S
 
 def main() -> int:
     workdir = workdir_from_argv()
+
+    # Lightweight env check before elevation (packages needed for UI)
+    report = check_environment()
+    if not report.ok:
+        # Need tk for messagebox — if packages missing, install first via CLI path
+        missing_pkgs = [i.name for i in report.issues if i.kind == "package"]
+        if missing_pkgs:
+            from .envcheck import install_packages
+
+            print("Installing missing packages:", ", ".join(missing_pkgs))
+            ok, err = install_packages(missing_pkgs)
+            if not ok:
+                print(f"Failed to install packages:\n{err}", file=sys.stderr)
+                return 3
+            report = check_environment()
+
     try:
         ensure_admin()
     except Exception as exc:
@@ -54,15 +71,23 @@ def main() -> int:
         print("Administrator privileges are required.", file=sys.stderr)
         return 1
 
-    ahk = find_autohotkey()
-    if ahk is None:
-        messagebox.showerror(
-            "AHK_Filter",
-            "未找到 AutoHotkey v1.x。\n"
-            "请安装 AutoHotkey 1.1 后重试。\n"
-            "https://www.autohotkey.com/",
-        )
-        return 2
+    report = check_environment()
+    if not report.ok:
+        report = guide_fix_environment(report, workdir)
+    if not report.ok or report.ahk_path is None:
+        ahk = find_autohotkey()
+        if ahk is None:
+            messagebox.showerror(
+                "AHK_Filter",
+                "环境仍不完整：未找到 AutoHotkey v1.x。\n"
+                "请安装后重新启动。\n"
+                "https://www.autohotkey.com/",
+            )
+            return 2
+        report.ahk_path = ahk
+
+    # Silent when OK — no dialog
+    ahk = report.ahk_path
 
     config = ConfigStore(workdir / "ahk_filter_config.json")
     config.load()
@@ -99,10 +124,7 @@ def main() -> int:
         app = ui_holder["app"]
         if app is None:
             return
-        if runtime.state.running:
-            app._ui_stop()
-        else:
-            app._ui_start()
+        app._ui_toggle()
 
     def do_refresh() -> None:
         app = ui_holder["app"]

@@ -9,7 +9,9 @@ from typing import Callable
 
 import customtkinter as ctk
 
+from . import __version__
 from .config import ConfigStore
+from .handbook import HandbookWindow
 from .hotkeys import format_hotkey, normalize_hotkey
 from .runtime import AhkRuntime
 from .scanner import AhkScript, ScanResult
@@ -17,6 +19,10 @@ from .scanner import AhkScript, ScanResult
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
+
+COLOR_RUNNING = ("#2563eb", "#1d4ed8")  # blue — started
+COLOR_STOPPED = ("#dc2626", "#b91c1c")  # red — not started
+COLOR_MUTED = ("gray75", "gray35")
 
 
 class ScriptRow(ctk.CTkFrame):
@@ -77,7 +83,7 @@ class ScriptRow(ctk.CTkFrame):
             self,
             text="清除",
             width=56,
-            fg_color=("gray75", "gray35"),
+            fg_color=COLOR_MUTED,
             command=lambda: on_clear_hotkey(script.script_id),
         )
         self.clear_btn.grid(row=0, column=4, padx=(4, 8))
@@ -198,6 +204,8 @@ class GroupSection(ctk.CTkFrame):
 
 
 class App(ctk.CTk):
+    _SPIN = ("◐", "◓", "◑", "◒")
+
     def __init__(
         self,
         workdir: Path,
@@ -223,19 +231,24 @@ class App(ctk.CTk):
         self._cancel_record = cancel_record
         self._rebind_hotkeys = rebind_hotkeys
 
-        self.title("AHK_Filter")
-        self.minsize(720, 420)
-        self.geometry("900x580")
+        self.title(f"AHK_Filter  v{__version__}")
+        self.minsize(760, 460)
+        self.geometry("920x600")
 
         self._rows: dict[str, ScriptRow] = {}
         self._groups: dict[str, GroupSection] = {}
         self._recording_target: str | None = None
+        self._test_open = False
+        self._refreshing = False
+        self._spin_idx = 0
+        self._handbook: HandbookWindow | None = None
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, weight=1)
 
         self._build_header()
         self._build_toolbar()
+        self._build_test_panel()
         self._build_list()
         self._build_footer()
         self.reload_scan(scan)
@@ -246,7 +259,7 @@ class App(ctk.CTk):
 
     def _build_header(self) -> None:
         header = ctk.CTkFrame(self)
-        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
+        header.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 4))
         header.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
@@ -254,67 +267,176 @@ class App(ctk.CTk):
             text="AHK_Filter",
             font=ctk.CTkFont(size=22, weight="bold"),
             anchor="w",
-        ).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 0))
+        ).grid(row=0, column=0, sticky="w", padx=10, pady=(8, 0))
 
-        scripts_dir = self.scan.scripts_dir
         self.subtitle = ctk.CTkLabel(
             header,
-            text=str(scripts_dir),
+            text=str(self.scan.scripts_dir),
             anchor="w",
             text_color=("gray35", "gray70"),
         )
-        self.subtitle.grid(row=1, column=0, sticky="w", padx=8, pady=(0, 8))
+        self.subtitle.grid(row=1, column=0, sticky="w", padx=10, pady=(0, 8))
 
         self.state_badge = ctk.CTkLabel(
             header,
-            text="已终止",
-            width=90,
+            text="未启动",
+            width=88,
             height=28,
             corner_radius=6,
-            fg_color=("gray70", "gray30"),
+            fg_color=COLOR_STOPPED,
+            text_color="white",
         )
-        self.state_badge.grid(row=0, column=1, rowspan=2, padx=8)
+        self.state_badge.grid(row=0, column=1, rowspan=2, padx=10)
 
     def _build_toolbar(self) -> None:
-        bar = ctk.CTkFrame(self)
-        bar.grid(row=1, column=0, sticky="ew", padx=12, pady=6)
-        bar.grid_columnconfigure(4, weight=1)
+        bar = ctk.CTkFrame(self, corner_radius=10)
+        bar.grid(row=1, column=0, sticky="ew", padx=14, pady=6)
+        bar.grid_columnconfigure(5, weight=1)
 
-        self.btn_start = ctk.CTkButton(bar, text="全局启动", width=100, command=self._ui_start)
-        self.btn_start.grid(row=0, column=0, padx=6, pady=8)
-
-        self.btn_stop = ctk.CTkButton(
-            bar, text="全局终止", width=100, fg_color=("#a33", "#722"), command=self._ui_stop
+        # Merged start/stop: red = stopped, blue = running
+        self.btn_toggle = ctk.CTkButton(
+            bar,
+            text="未启动",
+            width=118,
+            height=36,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=COLOR_STOPPED,
+            hover_color=("#ef4444", "#991b1b"),
+            command=self._ui_toggle,
         )
-        self.btn_stop.grid(row=0, column=1, padx=6, pady=8)
-
-        self.btn_refresh = ctk.CTkButton(bar, text="刷新扫描", width=100, command=self._ui_refresh)
-        self.btn_refresh.grid(row=0, column=2, padx=6, pady=8)
+        self.btn_toggle.grid(row=0, column=0, padx=(12, 8), pady=10)
 
         self.global_hk_btn = ctk.CTkButton(
             bar,
-            text=f"启停热键: {format_hotkey(self.config.data.get('global_toggle_hotkey'))}",
-            width=220,
+            text=f"启停热键  {format_hotkey(self.config.data.get('global_toggle_hotkey'))}",
+            width=200,
+            height=36,
             command=lambda: self._start_record("global_toggle"),
         )
-        self.global_hk_btn.grid(row=0, column=3, padx=6, pady=8)
+        self.global_hk_btn.grid(row=0, column=1, padx=6, pady=10)
+
+        self.btn_test = ctk.CTkButton(
+            bar,
+            text="TEST",
+            width=72,
+            height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=("gray70", "gray40"),
+            hover_color=("gray60", "gray45"),
+            command=self._toggle_test_panel,
+        )
+        self.btn_test.grid(row=0, column=2, padx=6, pady=10)
+
+        self.btn_book = ctk.CTkButton(
+            bar,
+            text="📖",
+            width=44,
+            height=36,
+            font=ctk.CTkFont(size=16),
+            fg_color=("gray80", "gray32"),
+            hover_color=("gray70", "gray38"),
+            command=self._open_handbook,
+        )
+        self.btn_book.grid(row=0, column=3, padx=(6, 12), pady=10)
+
+    def _build_test_panel(self) -> None:
+        self.test_panel = ctk.CTkFrame(self, corner_radius=8)
+        # Not gridded until opened — sits between toolbar (row1) and list (row3)
+        self.test_panel.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(self.test_panel, text="TEST", width=56, font=ctk.CTkFont(weight="bold")).grid(
+            row=0, column=0, padx=(12, 6), pady=10
+        )
+        self.test_entry = ctk.CTkEntry(
+            self.test_panel,
+            placeholder_text="在此输入以验证脚本键鼠行为（不另开窗口）",
+            height=34,
+        )
+        self.test_entry.grid(row=0, column=1, sticky="ew", padx=4, pady=10)
+
+        ctk.CTkButton(
+            self.test_panel,
+            text="清空",
+            width=64,
+            height=32,
+            fg_color=COLOR_MUTED,
+            command=lambda: self.test_entry.delete(0, "end"),
+        ).grid(row=0, column=2, padx=(4, 6), pady=10)
+
+        ctk.CTkButton(
+            self.test_panel,
+            text="收起",
+            width=64,
+            height=32,
+            fg_color=COLOR_MUTED,
+            command=self._toggle_test_panel,
+        ).grid(row=0, column=3, padx=(0, 12), pady=10)
 
     def _build_list(self) -> None:
         wrap = ctk.CTkFrame(self)
-        wrap.grid(row=2, column=0, sticky="nsew", padx=12, pady=6)
+        wrap.grid(row=3, column=0, sticky="nsew", padx=14, pady=6)
         wrap.grid_columnconfigure(0, weight=1)
-        wrap.grid_rowconfigure(0, weight=1)
+        wrap.grid_rowconfigure(1, weight=1)
 
-        self.scroll = ctk.CTkScrollableFrame(wrap, label_text="脚本列表")
-        self.scroll.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        list_hdr = ctk.CTkFrame(wrap, fg_color="transparent")
+        list_hdr.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
+        list_hdr.grid_columnconfigure(0, weight=1)
+
+        self.list_title = ctk.CTkLabel(
+            list_hdr,
+            text="脚本列表",
+            anchor="w",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        )
+        self.list_title.grid(row=0, column=0, sticky="w", padx=4)
+
+        self.btn_refresh = ctk.CTkButton(
+            list_hdr,
+            text="↻",
+            width=36,
+            height=28,
+            font=ctk.CTkFont(size=16),
+            fg_color="transparent",
+            text_color=("gray30", "gray80"),
+            hover_color=("gray85", "gray25"),
+            command=self._ui_refresh,
+        )
+        self.btn_refresh.grid(row=0, column=1, padx=4)
+
+        self.scroll = ctk.CTkScrollableFrame(wrap, label_text="")
+        self.scroll.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
         self.scroll.grid_columnconfigure(0, weight=1)
 
     def _build_footer(self) -> None:
         foot = ctk.CTkFrame(self)
-        foot.grid(row=3, column=0, sticky="ew", padx=12, pady=(6, 12))
+        foot.grid(row=4, column=0, sticky="ew", padx=14, pady=(4, 12))
         foot.grid_columnconfigure(0, weight=1)
         self.footer = ctk.CTkLabel(foot, text="", anchor="w")
         self.footer.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
+
+    def _toggle_test_panel(self) -> None:
+        self._test_open = not self._test_open
+        if self._test_open:
+            self.test_panel.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 4))
+            self.btn_test.configure(fg_color=COLOR_RUNNING, hover_color=("#3b82f6", "#1e40af"))
+            self.after(30, lambda: self.test_entry.focus_set())
+        else:
+            self.test_panel.grid_remove()
+            self.btn_test.configure(fg_color=("gray70", "gray40"), hover_color=("gray60", "gray45"))
+
+    def _open_handbook(self) -> None:
+        if self._handbook is not None and self._handbook.winfo_exists():
+            self._handbook.focus()
+            return
+
+        def before_relaunch() -> None:
+            try:
+                self.runtime.global_stop()
+                self.runtime.terminate_all()
+            except Exception:
+                pass
+
+        self._handbook = HandbookWindow(self, self.workdir, on_updated=before_relaunch)
 
     def _build_row(self, parent: ctk.CTkFrame, script: AhkScript, indent: int = 0) -> ScriptRow:
         entry = self.config.script_entry(script.script_id)
@@ -336,12 +458,14 @@ class App(ctk.CTk):
 
     def reload_scan(self, scan: ScanResult) -> None:
         self.scan = scan
+        self.subtitle.configure(text=str(scan.scripts_dir))
         for child in self.scroll.winfo_children():
             child.destroy()
         self._rows.clear()
         self._groups.clear()
 
         total = scan.total_count
+        self.list_title.configure(text=f"脚本列表（{total}）")
         if total == 0:
             ctk.CTkLabel(
                 self.scroll,
@@ -389,16 +513,11 @@ class App(ctk.CTk):
         self._sync_status_bar()
 
     def _adapt_geometry(self, count: int) -> None:
-        base = 380
+        base = 400
         per = 52
-        height = min(900, max(440, base + count * per))
-        width = 900 if count <= 10 else 980
+        height = min(920, max(460, base + count * per))
+        width = 920 if count <= 10 else 1000
         self.geometry(f"{width}x{height}")
-        label = f"脚本列表（{count}）"
-        try:
-            self.scroll.configure(label_text=label)
-        except Exception:
-            pass
 
     def _status_text(self, script_id: str) -> str:
         rt = self.runtime.state.scripts.get(script_id)
@@ -477,7 +596,9 @@ class App(ctk.CTk):
 
         if target == "global_toggle":
             self.config.data["global_toggle_hotkey"] = hotkey
-            self.global_hk_btn.configure(text=f"启停热键: {format_hotkey(hotkey)}")
+            self.global_hk_btn.configure(
+                text=f"启停热键  {format_hotkey(hotkey)}"
+            )
         elif target.startswith("script:"):
             sid = target.split(":", 1)[1]
             entry = self.config.script_entry(sid)
@@ -493,11 +614,17 @@ class App(ctk.CTk):
 
     def _reset_record_ui(self) -> None:
         self.global_hk_btn.configure(
-            text=f"启停热键: {format_hotkey(self.config.data.get('global_toggle_hotkey'))}"
+            text=f"启停热键  {format_hotkey(self.config.data.get('global_toggle_hotkey'))}"
         )
         for sid, row in self._rows.items():
             row.set_recording(False)
             row.set_hotkey_label(self.config.script_entry(sid).get("hotkey"))
+
+    def _ui_toggle(self) -> None:
+        if self.runtime.state.running:
+            self._ui_stop()
+        else:
+            self._ui_start()
 
     def _ui_start(self) -> None:
         try:
@@ -516,13 +643,32 @@ class App(ctk.CTk):
         self._refresh_row_status()
 
     def _ui_refresh(self) -> None:
-        if self.runtime.state.running:
-            messagebox.showinfo("无法刷新", "请先全局终止，再刷新扫描。")
+        if self._refreshing:
             return
+        if self.runtime.state.running:
+            messagebox.showinfo("无法刷新", "请先全局终止（点击蓝色按钮），再刷新扫描。")
+            return
+        self._refreshing = True
+        self._spin_idx = 0
+        self._animate_refresh()
         try:
             self._on_refresh()
         except Exception as exc:
             messagebox.showerror("刷新失败", str(exc))
+        finally:
+            self.after(350, self._finish_refresh_spin)
+
+    def _animate_refresh(self) -> None:
+        if not self._refreshing:
+            self.btn_refresh.configure(text="↻")
+            return
+        self.btn_refresh.configure(text=self._SPIN[self._spin_idx % len(self._SPIN)])
+        self._spin_idx += 1
+        self.after(90, self._animate_refresh)
+
+    def _finish_refresh_spin(self) -> None:
+        self._refreshing = False
+        self.btn_refresh.configure(text="↻")
 
     def _refresh_row_status(self) -> None:
         for sid, row in self._rows.items():
@@ -531,18 +677,29 @@ class App(ctk.CTk):
     def _sync_status_bar(self) -> None:
         running = self.runtime.state.running
         if running:
-            self.state_badge.configure(text="运行中", fg_color=("#2f9e44", "#2b8a3e"))
+            self.state_badge.configure(text="运行中", fg_color=COLOR_RUNNING)
+            self.btn_toggle.configure(
+                text="运行中",
+                fg_color=COLOR_RUNNING,
+                hover_color=("#3b82f6", "#1e40af"),
+            )
             self.btn_refresh.configure(state="disabled")
         else:
-            self.state_badge.configure(text="已终止", fg_color=("gray70", "gray30"))
+            self.state_badge.configure(text="未启动", fg_color=COLOR_STOPPED)
+            self.btn_toggle.configure(
+                text="未启动",
+                fg_color=COLOR_STOPPED,
+                hover_color=("#ef4444", "#991b1b"),
+            )
             self.btn_refresh.configure(state="normal")
 
         total = self.scan.total_count
         selected = sum(1 for rt in self.runtime.state.scripts.values() if rt.selected)
         self.footer.configure(
             text=(
-                f"脚本目录: {self.scan.scripts_dir}  |  AutoHotkey: {self.ahk_path.name}  |  "
-                f"脚本 {total} 个 / 勾选 {selected} 个  |  "
+                f"v{__version__}  |  {self.scan.scripts_dir}  |  "
+                f"AHK: {self.ahk_path.name}  |  "
+                f"脚本 {total} / 勾选 {selected}  |  "
                 f"启停 {format_hotkey(self.config.data.get('global_toggle_hotkey'))}"
             )
         )

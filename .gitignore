@@ -25,6 +25,7 @@ dist/
 # Local runtime state (machine-specific)
 ahk_filter_config.json
 ahk_filter_config.tmp
+.cache/
 
 # User scripts under scripts/ — only Pure examples are tracked
 scripts/**/*.ahk

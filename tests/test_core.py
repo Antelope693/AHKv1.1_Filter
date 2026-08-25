@@ -10,6 +10,7 @@ from ahk_filter.config import ConfigStore
 from ahk_filter.hotkeys import format_hotkey, normalize_hotkey
 from ahk_filter.injector import BEGIN, END, ensure_managed_block, has_managed_block, strip_managed_block
 from ahk_filter.scanner import scan_ahk_directory, scan_scripts
+from ahk_filter.update import is_newer, parse_version
 
 
 class HotkeyTests(unittest.TestCase):
@@ -88,6 +89,14 @@ class ConfigTests(unittest.TestCase):
         store = ConfigStore(Path("unused.json"))
         store.load()
         self.assertTrue(store.is_group_collapsed("Pure"))
+
+
+class UpdateTests(unittest.TestCase):
+    def test_parse_and_compare(self) -> None:
+        self.assertEqual(parse_version("v1.1.0"), (1, 1, 0))
+        self.assertTrue(is_newer("1.2.0", "1.1.0"))
+        self.assertFalse(is_newer("1.1.0", "1.1.0"))
+        self.assertFalse(is_newer("1.0.9", "1.1.0"))
 
 
 if __name__ == "__main__":
