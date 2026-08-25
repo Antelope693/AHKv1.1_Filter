@@ -15,14 +15,31 @@ from .elevation import ensure_admin, is_admin
 from .hotkey_bus import HotkeyBus
 from .injector import ensure_all
 from .runtime import AhkRuntime
-from .scanner import scan_ahk_directory
+from .scanner import ScanResult, scan_scripts, scripts_root
 
 
 def workdir_from_argv() -> Path:
     if len(sys.argv) > 1:
         return Path(sys.argv[1]).resolve()
-    # Prefer the directory containing run.py / project root
     return Path(__file__).resolve().parent.parent
+
+
+def ensure_scripts_dir(workdir: Path) -> None:
+    scripts_root(workdir).mkdir(parents=True, exist_ok=True)
+
+
+def bootstrap_scan(workdir: Path, config: ConfigStore, runtime: AhkRuntime) -> ScanResult:
+    ensure_scripts_dir(workdir)
+    scan = scan_scripts(workdir)
+    ensure_all([s.path for s in scan.all_scripts()])
+    config.sync_with_files([s.script_id for s in scan.all_scripts()])
+    smap = {
+        s.script_id: bool(config.script_entry(s.script_id).get("enabled", False))
+        for s in scan.all_scripts()
+    }
+    runtime.set_script_list(scan.all_scripts(), smap)
+    config.save()
+    return scan
 
 
 def main() -> int:
@@ -52,24 +69,7 @@ def main() -> int:
 
     bus = HotkeyBus()
     runtime = AhkRuntime(workdir=workdir, ahk_exe=ahk)
-
-    def selected_map() -> dict[str, bool]:
-        return {
-            name: bool(config.script_entry(name).get("enabled", True))
-            for name in config.data.get("scripts", {})
-        }
-
-    def bootstrap_scan() -> list:
-        scripts = scan_ahk_directory(workdir)
-        ensure_all([s.path for s in scripts])
-        config.sync_with_files([s.name for s in scripts])
-        # Align selected flags from config
-        smap = {s.name: bool(config.script_entry(s.name).get("enabled", True)) for s in scripts}
-        runtime.set_script_list([s.path for s in scripts], smap)
-        config.save()
-        return scripts
-
-    scripts = bootstrap_scan()
+    scan = bootstrap_scan(workdir, config, runtime)
 
     ui_holder: dict[str, App | None] = {"app": None}
 
@@ -85,17 +85,13 @@ def main() -> int:
         if gt:
             bindings[str(gt)] = lambda: schedule(do_global_toggle)
 
-        rh = config.data.get("refresh_hotkey")
-        if rh:
-            bindings[str(rh)] = lambda: schedule(do_refresh)
-
-        for name, entry in config.data.get("scripts", {}).items():
+        for sid, entry in config.data.get("scripts", {}).items():
             if not isinstance(entry, dict):
                 continue
             hk = entry.get("hotkey")
             if hk:
                 bindings[str(hk)] = (
-                    lambda n=name: schedule(lambda: do_script_toggle(n))
+                    lambda script_id=sid: schedule(lambda: do_script_toggle(script_id))
                 )
         bus.set_bindings(bindings)
 
@@ -116,24 +112,23 @@ def main() -> int:
             messagebox.showinfo("无法刷新", "请先全局终止，再刷新扫描。")
             return
         try:
-            # Hard refresh for robustness
             runtime.terminate_all()
-            scripts_now = scan_ahk_directory(workdir)
-            ensure_all([s.path for s in scripts_now])
-            config.sync_with_files([s.name for s in scripts_now])
+            scan_now = scan_scripts(workdir)
+            ensure_all([s.path for s in scan_now.all_scripts()])
+            config.sync_with_files([s.script_id for s in scan_now.all_scripts()])
             smap = {
-                s.name: bool(config.script_entry(s.name).get("enabled", True))
-                for s in scripts_now
+                s.script_id: bool(config.script_entry(s.script_id).get("enabled", False))
+                for s in scan_now.all_scripts()
             }
-            runtime.refresh_hard([s.path for s in scripts_now], smap)
+            runtime.refresh_hard(scan_now.all_scripts(), smap)
             config.save()
-            app.reload_scripts(scripts_now)
+            app.reload_scan(scan_now)
             rebind_hotkeys()
         except Exception as exc:
             messagebox.showerror("刷新失败", f"{exc}\n\n{traceback.format_exc()}")
 
-    def do_script_toggle(name: str) -> None:
-        runtime.toggle_script(name)
+    def do_script_toggle(script_id: str) -> None:
+        runtime.toggle_script(script_id)
         app = ui_holder["app"]
         if app:
             app._refresh_row_status()
@@ -157,17 +152,14 @@ def main() -> int:
         workdir=workdir,
         config=config,
         runtime=runtime,
-        scripts=scripts,
+        scan=scan,
         ahk_path=ahk,
         on_global_toggle=do_global_toggle,
         on_refresh=do_refresh,
-        on_record_done=lambda t, h: None,
         begin_record=begin_record,
         cancel_record=cancel_record,
         rebind_hotkeys=rebind_hotkeys,
     )
-    # Hook refresh button to robust path
-    app._on_refresh = do_refresh
     ui_holder["app"] = app
 
     app.mainloop()

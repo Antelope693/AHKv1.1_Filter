@@ -26,9 +26,13 @@ dist/
 ahk_filter_config.json
 ahk_filter_config.tmp
 
-# User personal AutoHotkey scripts — only Pure_* examples are tracked
-*.ahk
-!Pure_*.ahk
+# User scripts under scripts/ — only Pure examples are tracked
+scripts/**/*.ahk
+!scripts/Pure/
+!scripts/Pure/*.ahk
+
+# Legacy root-level personal scripts only
+/*.ahk
 
 # OS junk
 Thumbs.db

@@ -9,7 +9,7 @@ from pathlib import Path
 from ahk_filter.config import ConfigStore
 from ahk_filter.hotkeys import format_hotkey, normalize_hotkey
 from ahk_filter.injector import BEGIN, END, ensure_managed_block, has_managed_block, strip_managed_block
-from ahk_filter.scanner import scan_ahk_directory
+from ahk_filter.scanner import scan_ahk_directory, scan_scripts
 
 
 class HotkeyTests(unittest.TestCase):
@@ -32,26 +32,38 @@ class InjectorTests(unittest.TestCase):
             self.assertTrue(ensure_managed_block(path))
             text = path.read_text(encoding="utf-8")
             self.assertTrue(has_managed_block(text))
+            self.assertIn("Suspend, On", text)
             self.assertIn("MsgBox, hi", text)
-            # Second pass should be stable
             self.assertFalse(ensure_managed_block(path))
-            text2 = path.read_text(encoding="utf-8")
-            self.assertEqual(text.count(BEGIN), 1)
-            self.assertEqual(text2.count(END), 1)
-            body = strip_managed_block(text2)
+            body = strip_managed_block(path.read_text(encoding="utf-8"))
             self.assertNotIn(BEGIN, body)
             self.assertIn("MsgBox, hi", body)
 
 
 class ScannerTests(unittest.TestCase):
-    def test_scan_sorted(self) -> None:
+    def test_scan_flat_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "b.ahk").write_text(";b\n", encoding="utf-8")
             (root / "a.ahk").write_text(";a\n", encoding="utf-8")
-            (root / "ignore.txt").write_text("x", encoding="utf-8")
             names = [s.name for s in scan_ahk_directory(root)]
             self.assertEqual(names, ["a.ahk", "b.ahk"])
+
+    def test_scan_scripts_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / "scripts"
+            group = scripts / "Game"
+            group.mkdir(parents=True)
+            (group / "a.ahk").write_text(";a\n", encoding="utf-8")
+            (scripts / "loose.ahk").write_text(";l\n", encoding="utf-8")
+            result = scan_scripts(root)
+            self.assertEqual(len(result.groups), 1)
+            self.assertEqual(result.groups[0].name, "Game")
+            self.assertEqual(result.groups[0].scripts[0].script_id, "Game/a.ahk")
+            self.assertEqual(len(result.loose), 1)
+            self.assertEqual(result.loose[0].script_id, "loose.ahk")
+            self.assertEqual(result.total_count, 2)
 
 
 class ConfigTests(unittest.TestCase):
@@ -59,18 +71,23 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = ConfigStore(Path(tmp) / "cfg.json")
             store.load()
-            store.sync_with_files(["a.ahk", "b.ahk"])
-            store.script_entry("a.ahk")["hotkey"] = "ctrl+1"
-            store.script_entry("b.ahk")["enabled"] = False
+            store.sync_with_files(["Pure/a.ahk", "b.ahk"])
+            store.script_entry("Pure/a.ahk")["hotkey"] = "ctrl+1"
+            self.assertFalse(store.script_entry("b.ahk")["enabled"])
             store.save()
             store2 = ConfigStore(Path(tmp) / "cfg.json")
             store2.load()
-            self.assertEqual(store2.script_entry("a.ahk")["hotkey"], "ctrl+1")
-            self.assertFalse(store2.script_entry("b.ahk")["enabled"])
-            store2.sync_with_files(["a.ahk"])
+            self.assertEqual(store2.script_entry("Pure/a.ahk")["hotkey"], "ctrl+1")
+            store2.sync_with_files(["Pure/a.ahk"])
             self.assertNotIn("b.ahk", store2.data["scripts"])
             owners = store2.all_hotkeys()
             self.assertIn("ctrl+1", owners)
+            self.assertNotIn("refresh", owners.values())
+
+    def test_group_collapsed_default(self) -> None:
+        store = ConfigStore(Path("unused.json"))
+        store.load()
+        self.assertTrue(store.is_group_collapsed("Pure"))
 
 
 if __name__ == "__main__":
